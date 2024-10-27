@@ -1,0 +1,32 @@
+[tool.poetry]
+name = "fishsense_video_frame_extractor"
+version = "0.1.0"
+description = ""
+authors = ["Christopher L. Crutchfield <ccrutchf@ucsd.edu>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+numpy = "^2.1.2"
+scikit-image = "^0.24.0"
+fishsense-common = {git = "https://github.com/UCSD-E4E/fishsense-common"}
+appdirs = "^1.4.4"
+opencv-python = "^4.10.0.84"
+tqdm = "^4.66.5"
+
+[tool.poetry.group.dev.dependencies]
+ipykernel = "^6.26.0"
+black = "^24.3.0"
+pylint = "^3.2.0"
+
+[[tool.poetry.source]]
+name = "torch"
+url = "https://download.pytorch.org/whl/cu124"
+priority = "supplemental"
+
+[tool.poetry.scripts]
+fs-frame-extractor = "fishsense_video_frame_extractor.run:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
