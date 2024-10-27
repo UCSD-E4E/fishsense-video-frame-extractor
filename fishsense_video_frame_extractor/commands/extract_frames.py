@@ -1,13 +1,36 @@
+import asyncio
+import threading
 from pathlib import Path
-from typing import Tuple
+from typing import Dict, List, Tuple
 
 import cv2
 import numpy as np
+import ray
 from appdirs import user_cache_dir
 from fishsense_common.pluggable_cli import Command
 from skimage import metrics
+from tqdm import tqdm
 
 from fishsense_video_frame_extractor import __version__
+
+
+@ray.remote(num_cpus=0)
+class ProgressReporter:
+    def __init__(self):
+        self.updated = asyncio.Event()
+        self.value: Tuple[Path, int] = None
+
+    async def get_update_blocking(self) -> Tuple[Path, int]:
+        await self.updated.wait()
+        self.updated.clear()
+        file, frame = self.value
+        self.value = None
+
+        return file, frame
+
+    def update(self, file: Path, frame: int):
+        self.value = (file, frame)
+        self.updated.set()
 
 
 def __diff_images(a: np.ndarray, b: np.ndarray, skip_count: int) -> bool:
@@ -17,10 +40,9 @@ def __diff_images(a: np.ndarray, b: np.ndarray, skip_count: int) -> bool:
     b_gray = cv2.resize(
         b_gray, (a_gray.shape[1], a_gray.shape[0]), interpolation=cv2.INTER_AREA
     )
-    ssim_score = metrics.structural_similarity(a_gray, b_gray, full=True)
+    ssim_score = metrics.structural_similarity(a_gray, b_gray, multichannel=True)
     threshold = 0.85 + float(skip_count) / 2000.0
-    print(f"ssim: {ssim_score[0]} < {threshold}")
-    return ssim_score[0] < threshold
+    return ssim_score < threshold
 
 
 def __is_unique_image(
@@ -44,7 +66,7 @@ def __is_unique_image(
     if len(other_target_images) == 0 and len(other_images) == 0:
         return True
 
-    return len(other_images) > 0 and all(
+    return all(
         __diff_images(img, cv2.imread(i.absolute().as_posix()), 100)
         for i in other_images
     )
@@ -54,7 +76,6 @@ def __save_image(img: np.ndarray, file: Path):
     if file.exists():
         return
 
-    print("Saving images")
     cv2.imwrite(file.absolute().as_posix(), img)
 
 
@@ -72,7 +93,8 @@ def __store_new_image(
     return False
 
 
-def execute(file: Path, output_directory: Path):
+@ray.remote
+def execute(file: Path, output_directory: Path, reporter: ProgressReporter):
     cache_dir = (
         Path(
             user_cache_dir(
@@ -89,7 +111,6 @@ def execute(file: Path, output_directory: Path):
     output_target_directory.mkdir(parents=True, exist_ok=True)
 
     cap = cv2.VideoCapture(file.absolute().as_posix())
-    amount_of_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
 
     # Handle recovery
     jpgs = list(output_target_directory.glob("*.jpg"))
@@ -101,10 +122,8 @@ def execute(file: Path, output_directory: Path):
     skip_count = 1
     while cap.isOpened():
         frame_number = cap.get(cv2.CAP_PROP_POS_FRAMES)
-        print(
-            f"Percent: {float(frame_number) / float(amount_of_frames)}, Skip: {skip_count}"
-        )
         cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number + skip_count - 1)
+        reporter.update.remote(file, int(frame_number))
         ret, frame = cap.read()
 
         # if frame is read correctly ret is True
@@ -132,6 +151,41 @@ def execute(file: Path, output_directory: Path):
     cap.release()
 
 
+def print_progress(
+    reporter: ProgressReporter, files: List[Path], frame_counts: List[int]
+):
+    total_frame_count = sum(frame_counts)
+    total_tqdm = tqdm(total=total_frame_count, position=1, desc="Total Frames")
+    prev_total_completed = 0
+
+    file_frame_number = {}
+    file_totals = {f: c for f, c in zip(files, frame_counts)}
+    file_tqdm: Dict[Path, tqdm] = {}
+    file_prev_completed: Dict[Path, int] = {}
+
+    while True:
+        file, frame_number = ray.get(reporter.get_update_blocking.remote())
+
+        file_frame_number[file] = frame_number
+        total_completed = sum(v for _, v in file_frame_number.items())
+        total_tqdm.update(total_completed - prev_total_completed)
+        total_tqdm.refresh()
+        prev_total_completed = total_completed
+
+        if file not in file_tqdm:
+            file_tqdm[file] = tqdm(
+                total=file_totals[file],
+                position=len(file_tqdm) + 2,
+                desc=file.stem,
+                leave=False,
+            )
+            file_prev_completed[file] = 0
+
+        file_tqdm[file].update(frame_number - file_prev_completed[file])
+        file_tqdm[file].refresh()
+        file_prev_completed[file] = frame_number
+
+
 class ExtractFrames(Command):
     @property
     def name(self) -> str:
@@ -144,7 +198,28 @@ class ExtractFrames(Command):
     def __init__(self) -> None:
         super().__init__()
 
+    def __get_frame_count(self, file: Path) -> int:
+        cap = cv2.VideoCapture(file.absolute().as_posix())
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap.release()
+
+        return frame_count
+
     def __call__(self):
         self.init_ray()
 
-        execute(Path("/home/chris/GX020558.MP4"), Path("./output"))
+        files = ["/home/chris/GX010021.MP4", "/home/chris/GX020558.MP4"]
+        files = [Path(f) for f in files]
+
+        output = Path("./output")
+
+        frame_counts = [self.__get_frame_count(f) for f in files]
+        reporter: ProgressReporter = ProgressReporter.remote()
+
+        reporter_thread = threading.Thread(
+            target=print_progress, args=(reporter, files, frame_counts)
+        )
+        reporter_thread.start()
+
+        futures = [execute.remote(f, output, reporter) for f in files]
+        list(self.tqdm(futures, total=len(files), desc="Total Videos"))
