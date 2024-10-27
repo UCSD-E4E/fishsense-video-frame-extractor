@@ -232,22 +232,37 @@ class ExtractFrames(Command):
     def output_path(self) -> str:
         return self.__output_path
 
+    @output_path.setter
+    def output_path(self, value: str):
+        self.__output_path = value
+
     @property
+    @argument(
+        "--count",
+        short_name="-c",
+        default=None,
+        help="The total number of videos to choose.  These videos are choosen from the files returned from the glob using a seeded random sample.",
+    )
     def count(self) -> int:
         return self.__count
 
     @count.setter
-    @argument(
-        "--count",
-        short_name="-c",
-        help="The total number of videos to choose.  These videos are choosen from the files returned from the glob using a seeded random sample.",
-    )
     def count(self, value: int):
         self.__count = value
 
-    @output_path.setter
-    def output_path(self, value: str):
-        self.__output_path = value
+    @property
+    @argument(
+        "--seed",
+        short_name="-s",
+        default=1234,
+        help="The seed to use when choosing videos at random.",
+    )
+    def seed(self) -> int:
+        return self.__seed
+
+    @seed.setter
+    def seed(self, value: int):
+        self.__seed = value
 
     def __init__(self) -> None:
         super().__init__()
@@ -255,6 +270,7 @@ class ExtractFrames(Command):
         self.__data: List[str] = None
         self.__output_path: str = None
         self.__count: int = None
+        self.__seed: int = None
 
     def __get_frame_count(self, file: Path) -> int:
         cap = cv2.VideoCapture(file.absolute().as_posix())
@@ -266,7 +282,7 @@ class ExtractFrames(Command):
     def __call__(self):
         self.init_ray()
 
-        seed(1234)
+        seed(self.seed)
 
         files = [Path(f) for g in self.data for f in glob(g, recursive=True)]
         output = Path(self.output_path)
