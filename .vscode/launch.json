@@ -23,6 +23,9 @@
             "justMyCode": false,
             "args": [
                 "extract-frames",
+                "~/*.MP4",
+                "--output",
+                "./output"
             ]
         }
     ]

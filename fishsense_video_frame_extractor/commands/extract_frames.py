@@ -1,13 +1,15 @@
 import asyncio
 import threading
+from glob import glob
 from pathlib import Path
+from random import sample, seed
 from typing import Dict, List, Tuple
 
 import cv2
 import numpy as np
 import ray
 from appdirs import user_cache_dir
-from fishsense_common.pluggable_cli import Command
+from fishsense_common.pluggable_cli import Command, argument
 from skimage import metrics
 from tqdm import tqdm
 
@@ -34,13 +36,8 @@ class ProgressReporter:
 
 
 def __diff_images(a: np.ndarray, b: np.ndarray, skip_count: int) -> bool:
-    a_gray = cv2.cvtColor(a, cv2.COLOR_BGR2GRAY)
-    b_gray = cv2.cvtColor(b, cv2.COLOR_BGR2GRAY)
-
-    b_gray = cv2.resize(
-        b_gray, (a_gray.shape[1], a_gray.shape[0]), interpolation=cv2.INTER_AREA
-    )
-    ssim_score = metrics.structural_similarity(a_gray, b_gray, multichannel=True)
+    b = cv2.resize(b, (a.shape[1], a.shape[0]), interpolation=cv2.INTER_AREA)
+    ssim_score = metrics.structural_similarity(a, b, channel_axis=2)
     threshold = 0.85 + float(skip_count) / 2000.0
     return ssim_score < threshold
 
@@ -94,7 +91,9 @@ def __store_new_image(
 
 
 @ray.remote
-def execute(file: Path, output_directory: Path, reporter: ProgressReporter):
+def execute(
+    file: Path, output_directory: Path, root_directory: Path, reporter: ProgressReporter
+):
     cache_dir = (
         Path(
             user_cache_dir(
@@ -107,10 +106,18 @@ def execute(file: Path, output_directory: Path, reporter: ProgressReporter):
     )
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    output_target_directory = output_directory / file.stem
+    output_target_directory = (
+        Path(
+            file.parent.absolute()
+            .as_posix()
+            .replace(root_directory.as_posix(), output_directory.absolute().as_posix())
+        )
+        / file.stem
+    )
     output_target_directory.mkdir(parents=True, exist_ok=True)
 
     cap = cv2.VideoCapture(file.absolute().as_posix())
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     # Handle recovery
     jpgs = list(output_target_directory.glob("*.jpg"))
@@ -150,10 +157,14 @@ def execute(file: Path, output_directory: Path, reporter: ProgressReporter):
 
     cap.release()
 
+    reporter.update.remote(file, int(frame_count))
+
 
 def print_progress(
     reporter: ProgressReporter, files: List[Path], frame_counts: List[int]
 ):
+    videos_completed = 0
+
     total_frame_count = sum(frame_counts)
     total_tqdm = tqdm(total=total_frame_count, position=1, desc="Total Frames")
     prev_total_completed = 0
@@ -177,13 +188,20 @@ def print_progress(
                 total=file_totals[file],
                 position=len(file_tqdm) + 2,
                 desc=file.stem,
-                leave=False,
+                leave=True,
             )
             file_prev_completed[file] = 0
 
         file_tqdm[file].update(frame_number - file_prev_completed[file])
         file_tqdm[file].refresh()
         file_prev_completed[file] = frame_number
+
+        # Exit out when all videos are completed so the process ends.
+        if frame_number == file_totals[file]:
+            videos_completed += 1
+
+            if videos_completed == len(files):
+                break
 
 
 class ExtractFrames(Command):
@@ -195,8 +213,48 @@ class ExtractFrames(Command):
     def description(self) -> str:
         return "Extracts frames from specified videos."
 
+    @property
+    @argument("data", required=True, help="A glob that represents the data to process.")
+    def data(self) -> List[str]:
+        return self.__data
+
+    @data.setter
+    def data(self, value: List[str]):
+        self.__data = value
+
+    @property
+    @argument(
+        "--output",
+        short_name="-o",
+        required=True,
+        help="The path to store the resulting database.",
+    )
+    def output_path(self) -> str:
+        return self.__output_path
+
+    @property
+    def count(self) -> int:
+        return self.__count
+
+    @count.setter
+    @argument(
+        "--count",
+        short_name="-c",
+        help="The total number of videos to choose.  These videos are choosen from the files returned from the glob using a seeded random sample.",
+    )
+    def count(self, value: int):
+        self.__count = value
+
+    @output_path.setter
+    def output_path(self, value: str):
+        self.__output_path = value
+
     def __init__(self) -> None:
         super().__init__()
+
+        self.__data: List[str] = None
+        self.__output_path: str = None
+        self.__count: int = None
 
     def __get_frame_count(self, file: Path) -> int:
         cap = cv2.VideoCapture(file.absolute().as_posix())
@@ -208,18 +266,35 @@ class ExtractFrames(Command):
     def __call__(self):
         self.init_ray()
 
-        files = ["/home/chris/GX010021.MP4", "/home/chris/GX020558.MP4"]
-        files = [Path(f) for f in files]
+        seed(1234)
 
-        output = Path("./output")
+        files = [Path(f) for g in self.data for f in glob(g, recursive=True)]
+        output = Path(self.output_path)
+
+        # Find the singular path that defines the root of all of our data.
+        root = files
+        while len(root) > 1:
+            max_count = max(len(f.parts) for f in root)
+            root = {f.parent if len(f.parts) == max_count else f for f in root}
+        root = root.pop()
+
+        if self.count is not None:
+            # Choose whichever we have fewer of
+            count = min(self.count, len(files))
+            files = sample(files, count)
 
         frame_counts = [self.__get_frame_count(f) for f in files]
         reporter: ProgressReporter = ProgressReporter.remote()
 
+        # Use a thread instead of another process because all we are doing is reporting anyways.
+        # The GIL won't impact us much.
         reporter_thread = threading.Thread(
             target=print_progress, args=(reporter, files, frame_counts)
         )
         reporter_thread.start()
 
-        futures = [execute.remote(f, output, reporter) for f in files]
+        futures = [execute.remote(f, output, root, reporter) for f in files]
         list(self.tqdm(futures, total=len(files), desc="Total Videos"))
+
+        print("Waiting for all threads to finish before exiting...")
+        reporter_thread.join()
