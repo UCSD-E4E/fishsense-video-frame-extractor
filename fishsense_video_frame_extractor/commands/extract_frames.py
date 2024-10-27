@@ -273,6 +273,8 @@ class ExtractFrames(Command):
         self.__seed: int = None
 
     def __get_frame_count(self, file: Path) -> int:
+        print(f"Opening {file}...")
+
         cap = cv2.VideoCapture(file.absolute().as_posix())
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         cap.release()
