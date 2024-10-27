@@ -486,7 +486,7 @@ wakepy = "^0.10.1"
 type = "git"
 url = "https://github.com/UCSD-E4E/fishsense-common"
 reference = "HEAD"
-resolved_reference = "e573d7c2f5ca98f984a779fabeb21d2a94760ab6"
+resolved_reference = "8a8b2138a815d85f42538890e1fe9c3c022e328f"
 
 [[package]]
 name = "frozenlist"
