@@ -280,6 +280,8 @@ class ExtractFrames(Command):
         if not cache_file.exists:
             copy(file.absolute().as_posix(), cache_file.absolute().as_posix())
 
+        return cache_file
+
     def __get_frame_count(self, file: Path) -> int:
         cap = cv2.VideoCapture(file.absolute().as_posix())
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
