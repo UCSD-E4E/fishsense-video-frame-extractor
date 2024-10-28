@@ -261,7 +261,7 @@ class ExtractFrames(Command):
         self.__count: int = None
         self.__seed: int = None
 
-    def __cache_video(self, file: Path, root: Path) -> Path:
+    def __cache_video(self, file: Path, root_directory: Path) -> Path:
         cache_dir = (
             Path(
                 user_cache_dir(
@@ -271,13 +271,17 @@ class ExtractFrames(Command):
                 )
             )
             / "google_drive"
-            / root
+        )
+        cache_dir = Path(
+            file.parent.absolute()
+            .as_posix()
+            .replace(root_directory.as_posix(), cache_dir.absolute().as_posix())
         )
         cache_dir.mkdir(parents=True, exist_ok=True)
 
         cache_file = cache_dir / file.name
 
-        if not cache_file.exists:
+        if not cache_file.exists():
             copy(file.absolute().as_posix(), cache_file.absolute().as_posix())
 
         return cache_file
