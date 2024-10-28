@@ -277,7 +277,7 @@ class ExtractFrames(Command):
         with file.open("rb") as f:
             hasher = hashlib.md5()
             while True:
-                chunk = file.read(4096)  # Read file in chunks to handle large files
+                chunk = f.read(4096)  # Read file in chunks to handle large files
                 if not chunk:
                     break
                 hasher.update(chunk)
