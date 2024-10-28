@@ -274,7 +274,7 @@ class ExtractFrames(Command):
         self.__seed: int = None
 
     def __get_frame_count(self, file: Path) -> int:
-        with file.open("r") as f:
+        with file.open("rb") as f:
             _ = hashlib.md5(f)
 
         cap = cv2.VideoCapture(file.absolute().as_posix())
