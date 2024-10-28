@@ -295,6 +295,14 @@ class ExtractFrames(Command):
 
         return frame_count
 
+    def __get_root(self, files: List[Path]) -> Path:
+        # Find the singular path that defines the root of all of our data.
+        root = files
+        while len(root) > 1:
+            max_count = max(len(f.parts) for f in root)
+            root = {f.parent if len(f.parts) == max_count else f for f in root}
+        return root.pop()
+
     def __call__(self):
         self.init_ray()
 
@@ -304,11 +312,7 @@ class ExtractFrames(Command):
         output = Path(self.output_path)
 
         # Find the singular path that defines the root of all of our data.
-        root = files
-        while len(root) > 1:
-            max_count = max(len(f.parts) for f in root)
-            root = {f.parent if len(f.parts) == max_count else f for f in root}
-        root = root.pop()
+        root = self.__get_root(files)
 
         if self.count is not None:
             # Choose whichever we have fewer of
@@ -319,6 +323,8 @@ class ExtractFrames(Command):
             self.__cache_video(f, root)
             for f in tqdm(files, desc="Caching videos locally")
         ]
+        # Update the root after switching to cache.
+        root = self.__get_root(files)
 
         frame_counts = [self.__get_frame_count(f) for f in files]
         reporter: ProgressReporter = ProgressReporter.remote()
