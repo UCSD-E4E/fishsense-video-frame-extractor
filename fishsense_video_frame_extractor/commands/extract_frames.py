@@ -275,7 +275,14 @@ class ExtractFrames(Command):
 
     def __get_frame_count(self, file: Path) -> int:
         with file.open("rb") as f:
-            _ = hashlib.md5(f)
+            hasher = hashlib.md5()
+            while True:
+                chunk = file.read(4096)  # Read file in chunks to handle large files
+                if not chunk:
+                    break
+                hasher.update(chunk)
+
+            _ = hasher.hexdigest()
 
         cap = cv2.VideoCapture(file.absolute().as_posix())
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
