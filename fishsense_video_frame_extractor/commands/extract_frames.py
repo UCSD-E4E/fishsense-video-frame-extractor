@@ -74,6 +74,8 @@ def __save_image(img: np.ndarray, file: Path):
     if file.exists():
         return
 
+    file.parent.mkdir(parents=True, exist_ok=True)
+
     cv2.imwrite(file.absolute().as_posix(), img)
 
 
@@ -313,7 +315,10 @@ class ExtractFrames(Command):
             count = min(self.count, len(files))
             files = sample(files, count)
 
-        files = [self.__cache_video(f, root) for f in tqdm(files)]
+        files = [
+            self.__cache_video(f, root)
+            for f in tqdm(files, desc="Caching videos locally")
+        ]
 
         frame_counts = [self.__get_frame_count(f) for f in files]
         reporter: ProgressReporter = ProgressReporter.remote()
