@@ -313,7 +313,7 @@ class ExtractFrames(Command):
             count = min(self.count, len(files))
             files = sample(files, count)
 
-        files = [self.__cache_video(f, root) for f in files]
+        files = [self.__cache_video(f, root) for f in tqdm(files)]
 
         frame_counts = [self.__get_frame_count(f) for f in files]
         reporter: ProgressReporter = ProgressReporter.remote()
