@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import threading
 from glob import glob
 from pathlib import Path
@@ -117,7 +118,6 @@ def execute(
     output_target_directory.mkdir(parents=True, exist_ok=True)
 
     cap = cv2.VideoCapture(file.absolute().as_posix())
-    cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 1 * 10**10)
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     # Handle recovery
@@ -274,6 +274,9 @@ class ExtractFrames(Command):
         self.__seed: int = None
 
     def __get_frame_count(self, file: Path) -> int:
+        with file.open("r") as f:
+            _ = hashlib.md5(f)
+
         cap = cv2.VideoCapture(file.absolute().as_posix())
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         cap.release()
