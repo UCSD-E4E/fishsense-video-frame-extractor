@@ -1,9 +1,9 @@
 import asyncio
-import hashlib
 import threading
 from glob import glob
 from pathlib import Path
 from random import sample, seed
+from shutil import copy
 from typing import Dict, List, Tuple
 
 import cv2
@@ -95,18 +95,6 @@ def __store_new_image(
 def execute(
     file: Path, output_directory: Path, root_directory: Path, reporter: ProgressReporter
 ):
-    cache_dir = (
-        Path(
-            user_cache_dir(
-                "fishsense_video_frame_extractor",
-                appauthor="Engineers for Exploration",
-                version=__version__,
-            )
-        )
-        / "google_drive"
-    )
-    cache_dir.mkdir(parents=True, exist_ok=True)
-
     output_target_directory = (
         Path(
             file.parent.absolute()
@@ -273,17 +261,26 @@ class ExtractFrames(Command):
         self.__count: int = None
         self.__seed: int = None
 
+    def __cache_video(self, file: Path, root: Path) -> Path:
+        cache_dir = (
+            Path(
+                user_cache_dir(
+                    "fishsense_video_frame_extractor",
+                    appauthor="Engineers for Exploration",
+                    version=__version__,
+                )
+            )
+            / "google_drive"
+            / root
+        )
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        cache_file = cache_dir / file.name
+
+        if not cache_file.exists:
+            copy(file.absolute().as_posix(), cache_file.absolute().as_posix())
+
     def __get_frame_count(self, file: Path) -> int:
-        with file.open("rb") as f:
-            hasher = hashlib.md5()
-            while True:
-                chunk = f.read(4096)  # Read file in chunks to handle large files
-                if not chunk:
-                    break
-                hasher.update(chunk)
-
-            _ = hasher.hexdigest()
-
         cap = cv2.VideoCapture(file.absolute().as_posix())
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         cap.release()
@@ -309,6 +306,8 @@ class ExtractFrames(Command):
             # Choose whichever we have fewer of
             count = min(self.count, len(files))
             files = sample(files, count)
+
+        files = [self.__cache_video(f, root) for f in files]
 
         frame_counts = [self.__get_frame_count(f) for f in files]
         reporter: ProgressReporter = ProgressReporter.remote()
