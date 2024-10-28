@@ -117,7 +117,7 @@ def execute(
     output_target_directory.mkdir(parents=True, exist_ok=True)
 
     cap = cv2.VideoCapture(file.absolute().as_posix())
-    cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 1 * 10**7)
+    cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 1 * 10**10)
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     # Handle recovery
