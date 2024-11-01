@@ -120,7 +120,8 @@ def execute(
     skip_count = 1
     while cap.isOpened():
         frame_number = cap.get(cv2.CAP_PROP_POS_FRAMES)
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number + skip_count - 1)
+        frame_number += skip_count - 1
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
         reporter.update.remote(file, int(frame_number))
         ret, frame = cap.read()
 
