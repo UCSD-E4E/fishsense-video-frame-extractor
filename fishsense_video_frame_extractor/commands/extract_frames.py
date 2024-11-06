@@ -39,7 +39,7 @@ class ProgressReporter:
 def __diff_images(a: np.ndarray, b: np.ndarray, skip_count: int) -> bool:
     b = cv2.resize(b, (a.shape[1], a.shape[0]), interpolation=cv2.INTER_AREA)
     ssim_score = metrics.structural_similarity(a, b, channel_axis=2)
-    threshold = 0.85 + float(skip_count) / 2000.0
+    threshold = 0.7 + float(skip_count) / 1500.0
     return ssim_score < threshold
 
 
